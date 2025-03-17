@@ -70,16 +70,24 @@ BEGIN
     WHILE @@FETCH_STATUS = 0
     BEGIN
         SET @sql = @sql + '
-        SELECT CAST(COALESCE([Load_Dt], [LOAD_DT]) AS DATE) AS [Date],
-               COUNT(@CommentColumnParam) AS Volume,
-               COUNT(DISTINCT CASE WHEN @CommentColumnParam IS NOT NULL THEN CAST(COALESCE([Load_Dt], [LOAD_DT]) AS DATE) END) AS DistinctVolume,
+        SELECT t.[Date],
+               COUNT(t.@CommentColumnParam) AS Volume,
+               COUNT(DISTINCT CASE WHEN t.@CommentColumnParam IS NOT NULL THEN t.[Date] END) AS DistinctVolume,
                ''' + @currentTableName + ''' AS TableName,
-               MAX(CASE WHEN ROW_NUMBER() OVER (PARTITION BY CAST(COALESCE([Load_Dt], [LOAD_DT]) AS DATE) ORDER BY (SELECT NULL)) = 1 
-                        THEN @CommentColumnParam ELSE NULL END) AS SampleComment
-        FROM ' + @currentTable + '
-        WHERE @CommentColumnParam IS NOT NULL
-        AND CAST(COALESCE([Load_Dt], [LOAD_DT]) AS DATE) BETWEEN ''' + CONVERT(VARCHAR(10), @startDate, 120) + ''' AND ''' + CONVERT(VARCHAR(10), @endDate, 120) + '''
-        GROUP BY CAST(COALESCE([Load_Dt], [LOAD_DT]) AS DATE)';
+               (SELECT TOP 1 r.CommentValue 
+                FROM (SELECT @CommentColumnParam AS CommentValue,
+                             ROW_NUMBER() OVER (PARTITION BY CAST(COALESCE([Load_Dt], [LOAD_DT]) AS DATE) ORDER BY (SELECT NULL)) AS RowNum
+                      FROM ' + @currentTable + '
+                      WHERE @CommentColumnParam IS NOT NULL
+                      AND CAST(COALESCE([Load_Dt], [LOAD_DT]) AS DATE) BETWEEN ''' + CONVERT(VARCHAR(10), @startDate, 120) + ''' AND ''' + CONVERT(VARCHAR(10), @endDate, 120) + ''') r
+                WHERE r.RowNum = 1 
+                AND CAST(COALESCE([Load_Dt], [LOAD_DT]) AS DATE) = t.[Date]) AS SampleComment
+        FROM (SELECT CAST(COALESCE([Load_Dt], [LOAD_DT]) AS DATE) AS [Date],
+                     @CommentColumnParam
+              FROM ' + @currentTable + '
+              WHERE @CommentColumnParam IS NOT NULL
+              AND CAST(COALESCE([Load_Dt], [LOAD_DT]) AS DATE) BETWEEN ''' + CONVERT(VARCHAR(10), @startDate, 120) + ''' AND ''' + CONVERT(VARCHAR(10), @endDate, 120) + ''') t
+        GROUP BY t.[Date]';
 
         FETCH NEXT FROM @tableCursor INTO @currentTable, @currentTableName, @currentCommentColumn;
         IF @@FETCH_STATUS = 0
