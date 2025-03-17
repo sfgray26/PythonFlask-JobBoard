@@ -1,5 +1,5 @@
--- Create a table variable to hold the data
-DECLARE @tables TABLE (
+-- Create a temporary table to hold the data
+CREATE TABLE #tables (
     TABLE_SCHEMA VARCHAR(255),
     TABLE_NAME VARCHAR(255),
     COLUMN_NAME VARCHAR(255),
@@ -7,7 +7,7 @@ DECLARE @tables TABLE (
 );
 
 -- Import the data from the CSV file
-BULK INSERT @tables
+BULK INSERT #tables
 FROM 'C:\Your\Path\To\Your\Data.csv' -- Replace with your CSV file path
 WITH (
     FIELDTERMINATOR = ',',
@@ -25,31 +25,22 @@ SET @unionSql = '';
 -- Loop through the tables and generate the queries
 SELECT @sql = @sql +
     'SELECT ''' + t.TABLE_SCHEMA + '.' + t.TABLE_NAME + ''' AS TableName, ' +
-    'CAST(COALESCE(c.DateColumn, ''2024-01-01'') AS DATE) AS Date, ' + --Replace with the real date column.
+    'CAST(COALESCE(dc.COLUMN_NAME, ''2024-01-01'') AS DATE) AS Date, ' +
     'COUNT(' + QUOTENAME(t.COLUMN_NAME) + ') AS Volume ' +
     'FROM ' + QUOTENAME(t.TABLE_SCHEMA) + '.' + QUOTENAME(t.TABLE_NAME) + ' ' +
     'WHERE ' + QUOTENAME(t.COLUMN_NAME) + ' IS NOT NULL ' +
-    'GROUP BY CAST(COALESCE(c.DateColumn, ''2024-01-01'') AS DATE) ' + --Replace with the real date column.
+    'GROUP BY CAST(COALESCE(dc.COLUMN_NAME, ''2024-01-01'') AS DATE) ' +
     'UNION ALL '
-FROM @tables t
-CROSS APPLY (SELECT CASE t.TABLE_NAME
-                        WHEN 'LoanDetail' THEN 'LoanDate'
-                        WHEN 'LoanDetail_EDR' THEN 'LoanDate'
-                        WHEN 'LoanDetail_EDR_14Dec2024' THEN 'LoanDate'
-                        WHEN 'LoanDetail_HIST' THEN 'LoanDate'
-                        WHEN 'LoanDetail_HIST_14Dec2024' THEN 'LoanDate'
-                        WHEN 'LocationLoanInfo_EDR_14Dec' THEN 'LoanDate'
-                        WHEN 'LocationLoanInfo_HIST_14Dec' THEN 'LoanDate'
-                        WHEN 'Locations' THEN 'CreateDate'
-                        WHEN 'Locations_EDR' THEN 'CreateDate'
-                        WHEN 'Locations_HIST' THEN 'CreateDate'
-                        WHEN 'LocationsDetail' THEN 'CreateDate'
-                        WHEN 'LocationsDetail_EDR' THEN 'CreateDate'
-                        WHEN 'LocationsDetail_EDR_14Dec20' THEN 'CreateDate'
-                        WHEN 'LocationsDetail_EDR_14Dec20' THEN 'CreateDate'
-                        WHEN 'LocationsDetail_HIST' THEN 'CreateDate'
-                        WHEN 'LocationsDetail_HIST_14Dec20' THEN 'CreateDate'
-                    END AS DateColumn) c;
+FROM #tables t
+OUTER APPLY (
+    SELECT TOP 1 COLUMN_NAME
+    FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = t.TABLE_SCHEMA
+      AND TABLE_NAME = t.TABLE_NAME
+      AND (COLUMN_NAME LIKE '%date%' OR COLUMN_NAME LIKE '%time%')
+      AND DATA_TYPE IN ('date', 'datetime', 'smalldatetime', 'timestamp')
+    ORDER BY COLUMN_NAME --optional, but will make result consistent.
+) dc;
 
 -- Remove the trailing 'UNION ALL'
 IF LEN(@sql) > 0
@@ -67,3 +58,6 @@ ELSE
 BEGIN
     PRINT 'No tables or columns found to search';
 END;
+
+-- Drop the temporary table
+DROP TABLE #tables;
