@@ -71,14 +71,16 @@ BEGIN
     BEGIN
         SET @sql = @sql + '
         SELECT CAST(COALESCE([Load_Dt], [LOAD_DT]) AS DATE) AS [Date],
-               COUNT(' + QUOTENAME(@currentCommentColumn) + ') AS Volume,
-               ''' + @currentTableName + ''' AS TableName
+               COUNT(@CommentColumnParam) AS Volume,
+               COUNT(DISTINCT CASE WHEN @CommentColumnParam IS NOT NULL THEN CAST(COALESCE([Load_Dt], [LOAD_DT]) AS DATE) END) AS DistinctVolume,
+               ''' + @currentTableName + ''' AS TableName,
+               MAX(CASE WHEN ROW_NUMBER() OVER (PARTITION BY CAST(COALESCE([Load_Dt], [LOAD_DT]) AS DATE) ORDER BY (SELECT NULL)) = 1 
+                        THEN @CommentColumnParam ELSE NULL END) AS SampleComment
         FROM ' + @currentTable + '
-        WHERE ' + QUOTENAME(@currentCommentColumn) + ' IS NOT NULL
+        WHERE @CommentColumnParam IS NOT NULL
         AND CAST(COALESCE([Load_Dt], [LOAD_DT]) AS DATE) BETWEEN ''' + CONVERT(VARCHAR(10), @startDate, 120) + ''' AND ''' + CONVERT(VARCHAR(10), @endDate, 120) + '''
         GROUP BY CAST(COALESCE([Load_Dt], [LOAD_DT]) AS DATE)';
 
-        -- Only add UNION ALL if there are more tables to process
         FETCH NEXT FROM @tableCursor INTO @currentTable, @currentTableName, @currentCommentColumn;
         IF @@FETCH_STATUS = 0
             SET @sql = @sql + '
@@ -88,11 +90,12 @@ BEGIN
     CLOSE @tableCursor;
     DEALLOCATE @tableCursor;
 
-    -- Step 3: Execute the dynamic SQL
+    -- Define the parameter for sp_executesql
+    DECLARE @paramDefinition NVARCHAR(500) = N'@CommentColumnParam NVARCHAR(255)';
     PRINT 'Generated SQL:';
     PRINT @sql;
     BEGIN TRY
-        EXEC sp_executesql @sql;
+        EXEC sp_executesql @sql, @paramDefinition, @CommentColumnParam = @currentCommentColumn;
     END TRY
     BEGIN CATCH
         SELECT 
