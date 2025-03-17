@@ -71,21 +71,18 @@ BEGIN
     BEGIN
         SET @sql = @sql + '
         SELECT t.[Date],
-               COUNT(t.@CommentColumnParam) AS Volume,
-               COUNT(DISTINCT CASE WHEN t.@CommentColumnParam IS NOT NULL THEN t.[Date] END) AS DistinctVolume,
+               COUNT(' + QUOTENAME(@currentCommentColumn) + ') AS Volume,
+               COUNT(DISTINCT CASE WHEN ' + QUOTENAME(@currentCommentColumn) + ' IS NOT NULL THEN t.[Date] END) AS DistinctVolume,
                ''' + @currentTableName + ''' AS TableName,
-               (SELECT TOP 1 r.CommentValue 
-                FROM (SELECT @CommentColumnParam AS CommentValue,
-                             ROW_NUMBER() OVER (PARTITION BY CAST(COALESCE([Load_Dt], [LOAD_DT]) AS DATE) ORDER BY (SELECT NULL)) AS RowNum
-                      FROM ' + @currentTable + '
-                      WHERE @CommentColumnParam IS NOT NULL
-                      AND CAST(COALESCE([Load_Dt], [LOAD_DT]) AS DATE) BETWEEN ''' + CONVERT(VARCHAR(10), @startDate, 120) + ''' AND ''' + CONVERT(VARCHAR(10), @endDate, 120) + ''') r
-                WHERE r.RowNum = 1 
-                AND CAST(COALESCE([Load_Dt], [LOAD_DT]) AS DATE) = t.[Date]) AS SampleComment
+               (SELECT TOP 1 ' + QUOTENAME(@currentCommentColumn) + ' AS CommentValue
+                FROM ' + @currentTable + ' r
+                WHERE ' + QUOTENAME(@currentCommentColumn) + ' IS NOT NULL
+                AND CAST(COALESCE([Load_Dt], [LOAD_DT]) AS DATE) = t.[Date]
+                ORDER BY (SELECT NULL)) AS SampleComment
         FROM (SELECT CAST(COALESCE([Load_Dt], [LOAD_DT]) AS DATE) AS [Date],
-                     @CommentColumnParam
+                     ' + QUOTENAME(@currentCommentColumn) + '
               FROM ' + @currentTable + '
-              WHERE @CommentColumnParam IS NOT NULL
+              WHERE ' + QUOTENAME(@currentCommentColumn) + ' IS NOT NULL
               AND CAST(COALESCE([Load_Dt], [LOAD_DT]) AS DATE) BETWEEN ''' + CONVERT(VARCHAR(10), @startDate, 120) + ''' AND ''' + CONVERT(VARCHAR(10), @endDate, 120) + ''') t
         GROUP BY t.[Date]';
 
@@ -98,12 +95,12 @@ BEGIN
     CLOSE @tableCursor;
     DEALLOCATE @tableCursor;
 
-    -- Define the parameter for sp_executesql
+    -- Define the parameter for sp_executesql (no longer needed for column names, but kept for consistency)
     DECLARE @paramDefinition NVARCHAR(500) = N'@CommentColumnParam NVARCHAR(255)';
     PRINT 'Generated SQL:';
     PRINT @sql;
     BEGIN TRY
-        EXEC sp_executesql @sql, @paramDefinition, @CommentColumnParam = @currentCommentColumn;
+        EXEC sp_executesql @sql; -- Removed parameter since it's not used for column names
     END TRY
     BEGIN CATCH
         SELECT 
